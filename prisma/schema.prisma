@@ -1,0 +1,389 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// -----------------------------------------------------------------------------
+// USER & IDENTITY
+// -----------------------------------------------------------------------------
+
+enum Role {
+  STUDENT
+  COUNSELLOR
+  MODERATOR
+  INSTITUTION_ADMIN
+  SUPER_ADMIN
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String?  @unique
+  password  String? // Nullable for OAuth or anonymous users
+  role      Role     @default(STUDENT)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  isDeleted Boolean  @default(false)
+
+  // Profiles
+  studentProfile       StudentProfile?
+  anonymousProfile     AnonymousProfile?
+  counsellorProfile    Counsellor?
+  accessibilityProfile AccessibilityProfile?
+  privacyPreference    PrivacyPreference?
+
+  // Consent
+  consentRecords ConsentRecord[]
+
+  // Activity
+  journalEntries      JournalEntry[]
+  moodEntries         MoodEntry[]
+  assessments         Assessment[]
+  appointments        Appointment[]
+  communityPosts      CommunityPost[]
+  communityComments   CommunityComment[]
+  challengeCompletions ChallengeCompletion[]
+  badges              UserBadge[]
+  aiConversations     AIConversation[]
+  notifications       Notification[]
+}
+
+model StudentProfile {
+  id        String @id @default(uuid())
+  userId    String @unique
+  user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  firstName String?
+  lastName  String?
+  language  String @default("en") // en, hi, ta
+}
+
+model AnonymousProfile {
+  id          String @id @default(uuid())
+  userId      String @unique
+  user        User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  anonymousId String @unique // e.g., MM-7F42A9
+  alias       String // e.g., CalmFox
+}
+
+model AccessibilityProfile {
+  id                 String  @id @default(uuid())
+  userId             String  @unique
+  user               User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  screenReaderOptIn  Boolean @default(false)
+  highContrast       Boolean @default(false)
+  reducedMotion      Boolean @default(false)
+  largeText          Boolean @default(false)
+  captions           Boolean @default(false)
+  textToSpeech       Boolean @default(false)
+  voiceInput         Boolean @default(false)
+  gestureControls    Boolean @default(false)
+}
+
+model PrivacyPreference {
+  id                 String  @id @default(uuid())
+  userId             String  @unique
+  user               User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  shareWithCounsellor Boolean @default(false)
+  analyticsOptIn     Boolean @default(true)
+}
+
+model ConsentRecord {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String   // e.g., "TERMS", "ANALYTICS", "CRISIS_LIMITATIONS"
+  agreedAt  DateTime @default(now())
+  ipAddress String?
+}
+
+// -----------------------------------------------------------------------------
+// SCREENING
+// -----------------------------------------------------------------------------
+
+model Questionnaire {
+  id          String       @id @default(uuid())
+  title       String
+  description String?
+  questions   Question[]
+  assessments Assessment[]
+}
+
+model Question {
+  id              String           @id @default(uuid())
+  questionnaireId String
+  questionnaire   Questionnaire    @relation(fields: [questionnaireId], references: [id], onDelete: Cascade)
+  text            String
+  order           Int
+  options         QuestionOption[]
+}
+
+model QuestionOption {
+  id         String             @id @default(uuid())
+  questionId String
+  question   Question           @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  text       String
+  score      Int
+  responses  AssessmentResponse[]
+}
+
+model Assessment {
+  id              String               @id @default(uuid())
+  userId          String
+  user            User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  questionnaireId String
+  questionnaire   Questionnaire        @relation(fields: [questionnaireId], references: [id], onDelete: Cascade)
+  createdAt       DateTime             @default(now())
+  completedAt     DateTime?
+  responses       AssessmentResponse[]
+  result          AssessmentResult?
+}
+
+model AssessmentResponse {
+  id           String         @id @default(uuid())
+  assessmentId String
+  assessment   Assessment     @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  optionId     String
+  option       QuestionOption @relation(fields: [optionId], references: [id], onDelete: Cascade)
+}
+
+model AssessmentResult {
+  id           String     @id @default(uuid())
+  assessmentId String     @unique
+  assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  totalScore   Int
+  riskLevel    String     // LOW, MODERATE, HIGH, CRISIS
+  summary      String
+}
+
+// -----------------------------------------------------------------------------
+// COUNSELLING
+// -----------------------------------------------------------------------------
+
+model Counsellor {
+  id            String                   @id @default(uuid())
+  userId        String                   @unique
+  user          User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bio           String?
+  specialties   String[]
+  languages     String[]
+  appointments  Appointment[]
+  availability  CounsellorAvailability[]
+}
+
+model CounsellorAvailability {
+  id           String     @id @default(uuid())
+  counsellorId String
+  counsellor   Counsellor @relation(fields: [counsellorId], references: [id], onDelete: Cascade)
+  dayOfWeek    Int        // 0-6
+  startTime    String     // "09:00"
+  endTime      String     // "17:00"
+}
+
+enum AppointmentStatus {
+  REQUESTED
+  CONFIRMED
+  RESCHEDULED
+  CANCELLED
+  COMPLETED
+  NO_SHOW
+}
+
+model Appointment {
+  id           String            @id @default(uuid())
+  studentId    String
+  student      User              @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  counsellorId String
+  counsellor   Counsellor        @relation(fields: [counsellorId], references: [id], onDelete: Cascade)
+  status       AppointmentStatus @default(REQUESTED)
+  date         DateTime
+  mode         String            // Video, Phone, In-person
+  notes        AppointmentNote[]
+}
+
+model AppointmentNote {
+  id            String      @id @default(uuid())
+  appointmentId String
+  appointment   Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  content       String
+  createdAt     DateTime    @default(now())
+}
+
+// -----------------------------------------------------------------------------
+// JOURNAL & WELLNESS
+// -----------------------------------------------------------------------------
+
+model MoodEntry {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  score     Int      // 1-5
+  tags      String[]
+  createdAt DateTime @default(now())
+}
+
+model JournalEntry {
+  id          String         @id @default(uuid())
+  userId      String
+  user        User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  content     String
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  voice       VoiceJournal?
+  reflection  AIReflection?
+}
+
+model VoiceJournal {
+  id             String       @id @default(uuid())
+  journalEntryId String       @unique
+  journalEntry   JournalEntry @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
+  storageUrl     String
+  transcription  String?
+}
+
+model AIReflection {
+  id             String       @id @default(uuid())
+  journalEntryId String       @unique
+  journalEntry   JournalEntry @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
+  reflectionText String
+  createdAt      DateTime     @default(now())
+}
+
+// -----------------------------------------------------------------------------
+// COMMUNITY
+// -----------------------------------------------------------------------------
+
+enum ModerationStatus {
+  PENDING
+  APPROVED
+  FLAGGED
+  REMOVED
+}
+
+model CommunityPost {
+  id        String           @id @default(uuid())
+  userId    String
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  content   String
+  topic     String
+  status    ModerationStatus @default(PENDING)
+  createdAt DateTime         @default(now())
+  comments  CommunityComment[]
+  reactions PostReaction[]
+  reports   PostReport[]
+}
+
+model CommunityComment {
+  id        String        @id @default(uuid())
+  postId    String
+  post      CommunityPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  content   String
+  createdAt DateTime      @default(now())
+}
+
+model PostReaction {
+  id        String        @id @default(uuid())
+  postId    String
+  post      CommunityPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  type      String        // e.g., "heart", "hug"
+}
+
+model PostReport {
+  id        String        @id @default(uuid())
+  postId    String
+  post      CommunityPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  reason    String
+  createdAt DateTime      @default(now())
+}
+
+// -----------------------------------------------------------------------------
+// RESOURCES & GAMIFICATION
+// -----------------------------------------------------------------------------
+
+model Resource {
+  id          String   @id @default(uuid())
+  title       String
+  description String
+  content     String
+  category    String
+  readingTime Int
+  createdAt   DateTime @default(now())
+}
+
+model Challenge {
+  id          String   @id @default(uuid())
+  title       String
+  description String
+  frequency   String   // DAILY, WEEKLY
+  completions ChallengeCompletion[]
+}
+
+model ChallengeCompletion {
+  id          String    @id @default(uuid())
+  challengeId String
+  challenge   Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  completedAt DateTime  @default(now())
+}
+
+model UserBadge {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  badgeName String
+  earnedAt  DateTime @default(now())
+}
+
+// -----------------------------------------------------------------------------
+// AI & SYSTEM
+// -----------------------------------------------------------------------------
+
+model AIConversation {
+  id        String      @id @default(uuid())
+  userId    String
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  topic     String?
+  createdAt DateTime    @default(now())
+  messages  AIMessage[]
+}
+
+model AIMessage {
+  id             String         @id @default(uuid())
+  conversationId String
+  conversation   AIConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  role           String         // user, assistant
+  content        String
+  createdAt      DateTime       @default(now())
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  content   String
+  type      String   // APPOINTMENT, SYSTEM, COMMUNITY
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+model AnalyticsEvent {
+  id        String   @id @default(uuid())
+  eventType String
+  payload   Json?
+  createdAt DateTime @default(now())
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  action    String
+  actorId   String?
+  targetId  String?
+  details   Json?
+  createdAt DateTime @default(now())
+}
